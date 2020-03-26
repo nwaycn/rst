@@ -89,61 +89,6 @@ static switch_bool_t nway_is_silence_frame(switch_frame_t *frame, int silence_th
 	return is_silence;
 }
 
-
-
-
-static void *SWITCH_THREAD_FUNC rts_thread(switch_thread_t *thread, void *obj)
-{
-	switch_media_bug_t *bug = (switch_media_bug_t *) obj;
-	switch_core_session_t *session = switch_core_media_bug_get_session(bug);
-	switch_channel_t *channel = switch_core_session_get_channel(session);
-	struct rts_helper *rh;
-	switch_size_t bsize = SWITCH_RECOMMENDED_BUFFER_SIZE, samples = 0, inuse = 0;
-	unsigned char *data;
-	int channels = 1;
-
-	if (switch_core_session_read_lock(session) != SWITCH_STATUS_SUCCESS) {
-		return NULL;
-	}
-
-	rh = switch_core_media_bug_get_user_data(bug);
-	switch_buffer_create_dynamic(&rh->thread_buffer, 1024 * 512, 1024 * 64, 0);
-	rh->thread_ready = 1;
-
-	channels = switch_core_media_bug_test_flag(bug, SMBF_STEREO) ? 2 : rh->read_impl.number_of_channels;
-	data = switch_core_session_alloc(session, bsize);
-
-	while(switch_test_flag(rh->fh, SWITCH_FILE_OPEN)) {
-		switch_mutex_lock(rh->buffer_mutex);
-		inuse = switch_buffer_inuse(rh->thread_buffer);
-
-		if (rh->thread_ready && switch_channel_up_nosig(channel) && inuse < bsize) {
-			switch_mutex_unlock(rh->buffer_mutex);
-			switch_yield(20000);
-			continue;
-		} else if ((!rh->thread_ready || switch_channel_down_nosig(channel)) && !inuse) {
-			switch_mutex_unlock(rh->buffer_mutex);
-			break;
-		}
-		
-		samples = switch_buffer_read(rh->thread_buffer, data, bsize) / 2 / channels;
-		switch_mutex_unlock(rh->buffer_mutex);
-
-		if (switch_core_file_write(rh->fh, data, &samples) != SWITCH_STATUS_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error writing %s\n", rh->file);
-			/* File write failed */
-			set_completion_cause(rh, "uri-failure");
-			if (rh->hangup_on_error) {
-				switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
-				switch_core_session_reset(session, SWITCH_TRUE, SWITCH_TRUE);
-			}
-		}
-	}
-
-	switch_core_session_rwunlock(session);
-
-	return NULL;
-}
 static switch_bool_t nway_send_to(struct rst_helper* rh,char *data,int len)
 {
     if (socket){
