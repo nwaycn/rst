@@ -1,0 +1,6 @@
+<configuration name="dsr.conf" description="DSR Configuration">
+  <settings>
+    <param name="recording-dir" value="/usr/local/freeswitch/recordings/"/>
+    <param name="silence-duration" value="10000"/>
+   </settings>
+</configuration>
