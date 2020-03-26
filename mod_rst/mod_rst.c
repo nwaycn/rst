@@ -5,9 +5,9 @@ Description: this is a module of FreeSWITCH，and it send a udp stream to other 
 */
 #include "switch.h"
 
-SWITCH_MODULE_LOAD_FUNCTION(mod_dsr_load);
-SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_dsr_shutdown);
-SWITCH_MODULE_DEFINITION(mod_dsr, mod_dsr_load, mod_dsr_shutdown, NULL);
+SWITCH_MODULE_LOAD_FUNCTION(mod_rst_load);
+SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_rst_shutdown);
+SWITCH_MODULE_DEFINITION(mod_rst, mod_rst_load, mod_rst_shutdown, NULL);
 
 static struct {
 	switch_memory_pool_t *pool;
@@ -293,7 +293,7 @@ SWITCH_DECLARE(switch_status_t) nway_rst_session(switch_core_session_t *session)
 	switch_bool_t hangup_on_error = SWITCH_FALSE;	
 	switch_codec_t raw_codec = { 0 };
 	if (!switch_channel_media_up(channel) || !switch_core_session_get_read_codec(session)) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Can not dsr session.  Media not enabled on channel\n");
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Can not rst session.  Media not enabled on channel\n");
 		return SWITCH_STATUS_FALSE;
 	}
 
@@ -388,7 +388,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_stop_rts_session(switch_core_session_
 {
 	switch_media_bug_t *bug;
 	switch_channel_t *channel = switch_core_session_get_channel(session);
-	return switch_core_media_bug_remove_callback(session, nway_dsr_callback);
+	return switch_core_media_bug_remove_callback(session, nway_rst_callback);
 	 
 }
 
@@ -404,7 +404,7 @@ SWITCH_STANDARD_APP(rst_session_function)
 	nway_rst_session(session);
 }
 
-#define SESSIOS_DSR_SYNTAX "<uuid>"
+#define SESSIOS_RST_SYNTAX "<uuid>"
 SWITCH_STANDARD_API(session_rst_function)
 {
 	switch_core_session_t *rsession = NULL;
@@ -426,7 +426,7 @@ SWITCH_STANDARD_API(session_rst_function)
 	goto done;
 
   usage:
-	stream->write_function(stream, "-USAGE: %s\n", SESSIOS_DSR_SYNTAX);
+	stream->write_function(stream, "-USAGE: %s\n", SESSIOS_RST_SYNTAX);
 
   done:
 	if (rsession) {
@@ -456,7 +456,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_rst_load)
 		
 	SWITCH_ADD_APP(app_interface, "rst", "realtime stream transfer", "rst", rst_session_function, "", SAF_MEDIA_TAP);
 	SWITCH_ADD_APP(app_interface, "rst_stop", "realtime stream transfer", "rst_stop", switch_ivr_stop_rts_session, "", SAF_MEDIA_TAP);
-	SWITCH_ADD_API(api_interface, "uuid_rst", "realtime stream transfer api", session_dsr_function, SESSIOS_DSR_SYNTAX);
+	SWITCH_ADD_API(api_interface, "uuid_rst", "realtime stream transfer api", session_rst_function, SESSIOS_RST_SYNTAX);
  
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, " rst loaded\n");
 	return SWITCH_STATUS_SUCCESS;
