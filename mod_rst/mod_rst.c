@@ -12,12 +12,14 @@ SWITCH_MODULE_DEFINITION(mod_dsr, mod_dsr_load, mod_dsr_shutdown, NULL);
 static struct {
 	switch_memory_pool_t *pool;
 	switch_mutex_t *mutex;
-	char* udp_server;
+	char* udp_server_ip;
+    unsigned short udp_server_port;
 	unsigned int fs_ver;
+   
 } globals;
 
 
-struct rts_helper {
+struct rst_helper {
 	
 	int native;
 	uint32_t packet_len;
@@ -42,6 +44,8 @@ struct rts_helper {
 	const char *completion_cause;
 	
 	switch_audio_resampler_t *resampler;
+    switch_socket_t *socket = NULL;
+	switch_sockaddr_t *addr = NULL,
 };
 
 
@@ -140,12 +144,19 @@ static void *SWITCH_THREAD_FUNC rts_thread(switch_thread_t *thread, void *obj)
 
 	return NULL;
 }
-
+static switch_bool_t nway_send_to(struct rst_helper* rh,char *data,int len)
+{
+    if (socket){
+        if (switch_socket_sendto(rh->socket, rh->remote_addr, 0, (void *) data, &len) != SWITCH_STATUS_SUCCESS) {
+						switch_ivr_deactivate_unicast(session);
+				}
+    }
+}
 static switch_bool_t nway_rts_callback(switch_media_bug_t *bug, void *user_data, switch_abc_type_t type)
 {
 	switch_core_session_t *session = switch_core_media_bug_get_session(bug);
 	switch_channel_t *channel = switch_core_session_get_channel(session);
-	struct record_helper *rh = (struct record_helper *) user_data;
+	struct rst_helper *rh = (struct rst_helper *) user_data;
 	switch_event_t *event;
 	switch_frame_t *nframe;
 	switch_size_t len = 0;
@@ -158,27 +169,46 @@ static switch_bool_t nway_rts_callback(switch_media_bug_t *bug, void *user_data,
 	int16_t *read_data;
 	int read_samples;
 
-	char read_uuid_str[SWITCH_UUID_FORMATTED_LENGTH + 1];
-    switch_uuid_str(read_uuid_str, sizeof(read_uuid_str));
-	char write_uuid_str[SWITCH_UUID_FORMATTED_LENGTH + 1];
-    switch_uuid_str(write_uuid_str, sizeof(write_uuid_str));
+	
 
 	switch_core_session_get_read_impl(session, &read_impl);
 
-	/*raw_codec = switch_core_session_get_read_codec(session);
-	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%d Read Audio Codec  \n", raw_codec->agreed_pt);
-	raw_codec = switch_core_session_get_write_codec(session);
-	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%d Write Audio Codec  \n", raw_codec->agreed_pt); 
-	*/
 	int channels = read_impl.number_of_channels;
 	
+    switch_rtp_engine_t *a_engine;
+	switch_media_handle_t *smh;
+
+	switch_assert(session);
+	
+	if (!(smh = session->media_handle)) {
+		return SWITCH_STATUS_FALSE;
+	}
+
+	a_engine = &smh->engines[SWITCH_MEDIA_TYPE_AUDIO];
+	 
+
+
+	if (switch_channel_down(session->channel)) {
+		return SWITCH_STATUS_FALSE;
+	}
+
 	
  
 	 
 	switch (type) {
 	case SWITCH_ABC_TYPE_INIT:
 		{
-			
+			//get caller,callee,uuid,caller_port,callee_port
+            switch_caller_profile_t *caller_profile;
+			caller_profile = switch_channel_get_caller_profile(channel);
+             
+            if (a_engine->rtp_session){
+                 
+                char cmd[1024]={0};
+                sprintf(cmd,"INV:%s:%s:%s:%d:%d\0",caller_profile->caller_id_number,caller_profile->destination_number,switch_channel_get_uuid(channel),a_engine->local_sdp_port,a_engine->cur_payload_map->remote_sdp_port);
+                nway_send_to(rh,cmd,strlen(cmd));
+            }
+            
 		}
 		break;
 	case SWITCH_ABC_TYPE_TAP_NATIVE_READ:
@@ -195,10 +225,13 @@ static switch_bool_t nway_rts_callback(switch_media_bug_t *bug, void *user_data,
 		break;
 	case SWITCH_ABC_TYPE_CLOSE:
 		{
-			
-
-			
-
+		
+            if (a_engine->rtp_session){
+                 
+                char cmd[1024]={0};
+                sprintf(cmd,"BYE:%s\0",switch_channel_get_uuid(channel));
+                nway_send_to(rh,cmd,strlen(cmd));
+            }
 		}
 		break;
 	case SWITCH_ABC_TYPE_READ_PING:
@@ -207,14 +240,26 @@ static switch_bool_t nway_rts_callback(switch_media_bug_t *bug, void *user_data,
 	case SWITCH_ABC_TYPE_WRITE_REPLACE:
 		{
 			wframe = switch_core_media_bug_get_write_replace_frame(bug);
+            //send local rtp port and data
+            char cmd[1024]={0};
+            sprintf(cmd,"DATA:%d:0:\0",a_engine->local_sdp_port);
+            int len=strlen(cmd);
+            memcpy(cmd+len,wframe->data,wframe->datalen);
+            len += wframe->datalen;
+            nway_send_to(rh,cmd,len);
 			switch_core_media_bug_set_write_replace_frame(bug, wframe);
 		}
 		break;
 	case SWITCH_ABC_TYPE_READ_REPLACE:
 		
 			rframe = switch_core_media_bug_get_read_replace_frame(bug);
-			
-			
+			//send remote rtp port and data
+			char cmd[1024]={0};
+            sprintf(cmd,"DATA:%d:0:\0",a_engine->cur_payload_map->remote_sdp_port);
+            int len=strlen(cmd);
+            memcpy(cmd+len,rframe->data,rframe->datalen);
+            len += rframe->datalen;
+            nway_send_to(rh,cmd,len);
 			switch_core_media_bug_set_read_replace_frame(bug, rframe);
 		   
 	   }
@@ -229,7 +274,7 @@ static switch_bool_t nway_rts_callback(switch_media_bug_t *bug, void *user_data,
 }
 
 
-SWITCH_DECLARE(switch_status_t) nway_rts_session(switch_core_session_t *session)
+SWITCH_DECLARE(switch_status_t) nway_rst_session(switch_core_session_t *session)
 {
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "concurrent is:%d,18621575908 \n",switch_core_session_count());
 	switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -268,6 +313,20 @@ SWITCH_DECLARE(switch_status_t) nway_rts_session(switch_core_session_t *session)
 
 		}
 	}
+    if (switch_socket_create(&rh->socket, AF_INET, SOCK_DGRAM, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 1\n");
+		goto end;
+	}
+
+	if (switch_socket_opt_set(rh->socket, SWITCH_SO_REUSEADDR, 1) != SWITCH_STATUS_SUCCESS) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Socket Option Error\n");
+		goto end;
+	}
+    if (switch_sockaddr_info_get(&rh->addr, globals.udp_server_ip, SWITCH_UNSPEC,
+								 globals.udp_server_port, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 3\n");
+		goto end;
+	}
 	if ((status = switch_core_media_bug_add(session, "rst", file,
 											nway_rts_callback, rh, to, flags, &bug)) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error adding media bug  \n");
@@ -278,7 +337,8 @@ end:
    	if (rh->resampler) {
 		switch_resample_destroy(&rh->resampler);
 	}
-	 
+	if (rh->socket)
+        switch_socket_close(rh->socket);
     switch_core_session_reset(session, SWITCH_FALSE, SWITCH_TRUE);
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -300,12 +360,16 @@ static switch_status_t load_config(void)
 		for (param = switch_xml_child(settings, "param"); param; param = param->next) {
 			char *var = (char *) switch_xml_attr_soft(param, "name");
 			char *val = (char *) switch_xml_attr_soft(param, "value");
-			if (!strcasecmp(var, "udp-server")) {
+			if (!strcasecmp(var, "udp-server-ip")) {
 				if (!zstr(val) ) {
-					globals.udp_server = switch_core_strdup(globals.pool, val);
+					globals.udp_server_ip = switch_core_strdup(globals.pool, val);
 				}
 			}
-			
+			if (!strcasecmp(var, "udp-server-port")) {
+				if (!zstr(val) ) {
+					globals.udp_server_port = atoi(val);
+				}
+			}
 		}
 	}
   done:
