@@ -1,6 +1,6 @@
-<configuration name="dsr.conf" description="DSR Configuration">
+<configuration name="rst.conf" description="rst Configuration">
   <settings>
-    <param name="recording-dir" value="/usr/local/freeswitch/recordings/"/>
-    <param name="silence-duration" value="10000"/>
+    <param name="udp-server" value="127.0.0.1:9527"/>
+     
    </settings>
 </configuration>

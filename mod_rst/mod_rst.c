@@ -12,7 +12,7 @@ SWITCH_MODULE_DEFINITION(mod_dsr, mod_dsr_load, mod_dsr_shutdown, NULL);
 static struct {
 	switch_memory_pool_t *pool;
 	switch_mutex_t *mutex;
-	
+	char* udp_server;
 	unsigned int fs_ver;
 } globals;
 
@@ -268,7 +268,7 @@ SWITCH_DECLARE(switch_status_t) nway_rts_session(switch_core_session_t *session)
 
 		}
 	}
-	if ((status = switch_core_media_bug_add(session, "rts", file,
+	if ((status = switch_core_media_bug_add(session, "rst", file,
 											nway_rts_callback, rh, to, flags, &bug)) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error adding media bug  \n");
 		 
@@ -285,15 +285,10 @@ end:
 
 static switch_status_t load_config(void)
 {
-	char *cf = "dsr.conf";
+	char *cf = "rst.conf";
 	switch_xml_t cfg, xml = NULL, param, settings;
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
-	char uuid_str[SWITCH_UUID_FORMATTED_LENGTH + 1];
-    switch_uuid_str(uuid_str, sizeof(uuid_str));
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, uuid_str);
-	/* Set defaults */
-	globals.recording_dir =switch_core_strdup(globals.pool, "/usr/local/freeswitch/recordings/");
-	 
+	
 
 	if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
@@ -305,9 +300,9 @@ static switch_status_t load_config(void)
 		for (param = switch_xml_child(settings, "param"); param; param = param->next) {
 			char *var = (char *) switch_xml_attr_soft(param, "name");
 			char *val = (char *) switch_xml_attr_soft(param, "value");
-			if (!strcasecmp(var, "recording-dir")) {
-				if (!zstr(val) && switch_is_file_path(val)) {
-					globals.recording_dir = switch_core_strdup(globals.pool, val);
+			if (!strcasecmp(var, "udp-server")) {
+				if (!zstr(val) ) {
+					globals.udp_server = switch_core_strdup(globals.pool, val);
 				}
 			}
 			
@@ -342,7 +337,7 @@ SWITCH_STANDARD_APP(rst_session_function)
 	if (zstr(data)) {
 		return;
 	}
-	nway_dsr_session(session);
+	nway_rst_session(session);
 }
 
 #define SESSIOS_DSR_SYNTAX "<uuid>"
