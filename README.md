@@ -20,5 +20,5 @@ receive udp packet and write into file
 ## udp server
 接收udp包并写进文件中
 
-
+##License:GPL
 
