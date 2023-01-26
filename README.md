@@ -12,7 +12,8 @@ receive udp packet and write into file
 
 # 中文说明
 
-实时将FreeSWITCH通话中的语音媒体流导出到其它程度或机器中
+实时将FreeSWITCH通话中的语音媒体流导出到其它程序或机器中
+支持双路音频实时数据通过udp 传输给其它的udp server，从而进行识别或旁路录音等
 
 ## mod_rst
 实时对media bug 数据转发的模块
