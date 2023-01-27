@@ -10,13 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/astaxie/beego/config"
 	_ "github.com/zenwerk/go-wave"
 )
 
 var Sessions map[string]Rst_session
-var Files map[uint16]*os.File
+
 var Save_dir string
 var Save_rule string
 var Ext_name string
@@ -58,6 +59,148 @@ func StringByte(s string) []byte {
 }
 func random(min, max int) int {
 	return rand.Intn(max-min) + min
+}
+func IsDigits(str string) bool {
+	for _, r := range str {
+		if unicode.IsDigit(r) == false {
+			return false
+		}
+
+	}
+	return true
+}
+func process_package(n int, addr *net.UDPAddr, buffer []byte) {
+	fmt.Println("addr:  ", addr, " n:", n)
+	cmd := string(buffer[:4])
+	var err error
+	if cmd == INVITE {
+		var session Rst_session
+		//所有包内容为INVITE命令
+		p := string(buffer)
+		s3 := strings.Split(p, ":")
+		if len(s3) != 4 {
+			fmt.Println("This INVTIE request not correct,rule number not 4")
+			return
+		}
+		session.Uuid = s3[1]
+		session.Caller = s3[2]
+		session.Callee = s3[3]
+
+		if Use_caller {
+
+			session.Caller_file_name = session.Caller + "_"
+		}
+		if Use_callee {
+
+			session.Caller_file_name += session.Callee + "_"
+		}
+		if Use_uuid {
+
+			session.Caller_file_name += session.Uuid
+		}
+		session.Callee_file_name = session.Caller_file_name + "_R" + Ext_name
+		session.Caller_file_name += "_W" + Ext_name
+		//openfile
+		session.Caller_file, err = os.Create(session.Caller_file_name)
+		if err != nil {
+			fmt.Println("open file error:", err)
+			return
+		}
+		session.Callee_file, err = os.Create(session.Callee_file_name)
+		if err != nil {
+			fmt.Println("open file error:", err)
+			return
+		}
+		Sessions[session.Uuid] = session
+
+	} else if cmd == DATA {
+		//DATA:478525a8-8263-4550-b18c-d027d11c9865:R:00:160:xxxxx   ,先转为字符串后，再把长度后的那部分写入文件,
+		//可以从第六个开始，前五个字符不需要再辨别
+		p := string(buffer)
+		var uuid string
+		var flag string
+		var payload string
+		var mylen string
+		var mydata []byte
+		var mypos int = 0
+		for i := 5; i < len(p); i++ {
+			if p[i] == ':' {
+
+				mypos++
+				i++
+
+			} else {
+				if mypos > 3 {
+					if IsDigits(mylen) {
+						session, ok := Sessions[uuid]
+						if !ok {
+							fmt.Println("not found session for uuid:", uuid)
+							return
+						}
+						var l int
+						l, err = strconv.Atoi(mylen)
+						if err != nil {
+							fmt.Println("convert len failed:", err)
+							return
+						}
+						if l < 1 {
+							fmt.Println("逗你玩？")
+							return
+						}
+						mydata = make([]byte, l) //
+						copy(mydata, buffer[i:])
+						if flag == "W" {
+							if session.Caller_file != nil {
+								_, err = session.Caller_file.Write(mydata)
+								if err != nil {
+									fmt.Println("write to file error:", err)
+								}
+							}
+						} else {
+							if session.Callee_file != nil {
+								_, err = session.Callee_file.Write(mydata)
+								if err != nil {
+									fmt.Println("write to file error:", err)
+								}
+							}
+						}
+
+					} else {
+						fmt.Println("len in package is failed")
+					}
+
+				} else if mypos == 0 {
+					uuid += string(p[i])
+				} else if mypos == 1 {
+					flag += string(p[i])
+				} else if mypos == 2 {
+					payload += string(p[i])
+				} else if mypos == 3 {
+					//必须是数字
+					mylen += string(p[i])
+				}
+			}
+		}
+	} else if cmd == BYE {
+		p := string(buffer)
+		s3 := strings.Split(p, ":")
+		if len(s3) != 2 {
+			fmt.Println("This BYE request not correct,rule number not 2")
+			return
+		}
+		uuid := s3[1]
+		//如果有未关闭的文件，需要在些处关闭
+		session, ok := Sessions[uuid]
+		if ok {
+			if session.Caller_file != nil {
+				session.Caller_file.Close()
+			}
+			if session.Callee_file != nil {
+				session.Callee_file.Close()
+			}
+		}
+		delete(Sessions, uuid)
+	}
 }
 
 func main() {
@@ -119,116 +262,19 @@ func main() {
 		Ext_name = "." + s2[len(s2)-1]
 	}
 	//end 解析rule
-	buffer := make([]byte, 1024)
+
 	rand.Seed(time.Now().Unix())
 	Sessions = make(map[string]Rst_session, 0)
-	Files = make(map[uint16]*os.File, 0)
-	var itmp int
-	//var err error
+
 	for {
+		buffer := make([]byte, 1024)
 		n, addr, err := connection.ReadFromUDP(buffer)
 		//fmt.Print("-> ", string(buffer[0:n-1]))
 
 		if err != nil {
 			fmt.Println("error:  ", err)
 		} else {
-			fmt.Println("addr:  ", addr, " n:", n)
-			cmd := string(buffer[:10])
-
-			if strings.Contains(cmd, INVITE) {
-				//new call
-				params := strings.Split(cmd, ":")
-				if len(params) < 5 {
-					fmt.Println("this call length not enough!")
-				} else {
-					var session Rst_session
-					session.Caller = params[1]
-					session.Callee = params[2]
-					session.Uuid = params[3]
-					tmp := params[4]
-					if len(tmp) > 0 {
-						itmp, err = strconv.Atoi(tmp)
-						session.Caller_port = uint16(itmp)
-						if err != nil {
-							fmt.Println("port convert faile:", tmp)
-						} else {
-							if _, ok := Files[session.Caller_port]; ok {
-
-							} else {
-								fmt.Sprintf(tmp, "./%s_%s.wav", session.Caller, session.Uuid)
-								Files[session.Caller_port], err = os.Create(tmp)
-								if err != nil {
-									fmt.Println("created file failed")
-									Files[session.Caller_port].Close()
-								}
-							}
-
-						}
-					}
-					tmp = params[5]
-					if len(tmp) > 0 {
-
-						itmp, err = strconv.Atoi(tmp)
-						session.Callee_port = uint16(itmp)
-						if err != nil {
-							fmt.Println("port convert faile:", tmp)
-						} else {
-							if _, ok := Files[session.Caller_port]; ok {
-
-							} else {
-								fmt.Sprintf(tmp, "./%s_%s.wav", session.Caller, session.Uuid)
-								Files[session.Caller_port], err = os.Create(tmp)
-								if err != nil {
-									fmt.Println("created file failed")
-									Files[session.Caller_port].Close()
-								}
-							}
-
-						}
-					}
-					Sessions[session.Uuid] = session
-
-				}
-
-			} else if strings.Contains(cmd, BYE) {
-				params := strings.Split(cmd, ":")
-				if _s, ok := Sessions[params[1]]; ok {
-					//find session
-					if _v1, ok1 := Files[_s.Caller_port]; ok1 {
-						_v1.Close()
-						delete(Files, _s.Caller_port)
-					}
-					if _v2, ok2 := Files[_s.Callee_port]; ok2 {
-						_v2.Close()
-						delete(Files, _s.Callee_port)
-					}
-					delete(Sessions, params[1])
-				}
-				//destory a call
-			} else if strings.Contains(cmd, DATA) {
-				//write data into file
-				//get port and payload
-				cmd_data := string(buffer[:20])
-				params := strings.Split(cmd_data, ":")
-				port_s := params[1]
-				//payload_s := params[2]
-
-				var port uint16
-				if len(port_s) > 0 {
-					itmp, err = strconv.Atoi(port_s)
-					port = uint16(itmp)
-					if err == nil {
-						if _v, ok := Files[port]; ok {
-							//write to file
-							index := strings.LastIndex(cmd_data, ":")
-							data := buffer[index:]
-							_v.Write(data)
-						}
-					}
-
-				}
-
-			}
+			go process_package(n, addr, buffer) //
 
 		}
 

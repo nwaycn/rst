@@ -1,21 +1,23 @@
 package main
 
 import (
+	"os"
 	"time"
 )
 
 type Rst_session struct {
-	Caller      string
-	Callee      string
-	Uuid        string
-	Caller_port uint16
-	Callee_port uint16
-	Callin_time time.Time
-	Hangup_time time.Time
-
-	//Caller_File *os.File
-	//Callee_File *os.File
-	//waveFile, err := os.Create(audioFileName)
+	Caller            string
+	Callee            string
+	Uuid              string
+	Caller_port       uint16
+	Callee_port       uint16
+	Callin_time       time.Time
+	Last_recv_package time.Time //最后收到的包的时间，如果长时间没有收到包，那么就要主动断开
+	Hangup_time       time.Time
+	Caller_file       *os.File
+	Callee_file       *os.File
+	Caller_file_name  string
+	Callee_file_name  string
 }
 
 //理论上，不需要回应包，但收到包后回一个
