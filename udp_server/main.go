@@ -1,3 +1,8 @@
+/*
+auth:上海宁卫信息技术有限公司
+License: GPL
+Description: this is a module of FreeSWITCH，and it send any udp stream to other udp server
+*/
 package main
 
 import (
@@ -273,6 +278,7 @@ func main() {
 
 		if err != nil {
 			fmt.Println("error:  ", err)
+			break
 		} else {
 			go process_package(n, addr, buffer) //
 
