@@ -6,7 +6,9 @@ Description: this is a module of FreeSWITCH，and it send any udp stream to othe
 package main
 
 import (
+	"fmt"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -23,6 +25,42 @@ type Rst_session struct {
 	Callee_file       *os.File
 	Caller_file_name  string
 	Callee_file_name  string
+}
+
+type SessMgr struct {
+	sync.RWMutex
+	Sessions map[string]Rst_session
+}
+
+func (s *SessMgr) Get(key string) (Rst_session, bool) {
+	s.RLock()
+	defer s.RUnlock()
+	session, ok := s.Sessions[key]
+	return session, ok
+}
+func (s *SessMgr) Set(key string, val Rst_session) {
+	s.Lock()
+	defer s.Unlock()
+	s.Sessions[key] = val
+}
+func (s *SessMgr) Del(key string) {
+	s.Lock()
+	defer s.Unlock()
+	session, ok := s.Sessions[key]
+	if ok {
+		if session.Caller_file != nil {
+			session.Caller_file.Close()
+		}
+		if session.Callee_file != nil {
+			session.Callee_file.Close()
+		}
+	}
+	tmp := fmt.Sprintf("caller:%s,callee:%s,R:%s,W:%s,callin time:%s,hangup time:%s\r\n", session.Caller, session.Callee,
+		session.Caller_file_name, session.Callee_file_name, session.Callin_time.Format(TIMEFORMAT), time.Now().Format(TIMEFORMAT))
+	if Cdr_file != nil {
+		Cdr_file.WriteString(tmp)
+	}
+	delete(s.Sessions, key)
 }
 
 //理论上，不需要回应包，但收到包后回一个
@@ -60,8 +98,9 @@ type Rst_session struct {
 // BYE :478525a8-8263-4550-b18c-d027d11c9865
 
 const (
-	INVITE = "INV "
-	BYE    = "BYE "
-	DATA   = "DATA"
-	ACK    = "ACK "
+	INVITE     = "INV "
+	BYE        = "BYE "
+	DATA       = "DATA"
+	ACK        = "ACK "
+	TIMEFORMAT = "2006-01-02 15:04:05"
 )

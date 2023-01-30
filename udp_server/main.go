@@ -21,9 +21,12 @@ import (
 	_ "github.com/zenwerk/go-wave"
 )
 
-var Sessions map[string]Rst_session
+var Cdr_file *os.File
 
+//var Sessions map[string]Rst_session
+var SessMgr_ SessMgr
 var Save_dir string
+var Cdr_dir string
 var Save_rule string
 var Ext_name string
 var Use_caller bool
@@ -33,6 +36,13 @@ var Use_uuid bool
 //起始协议包为 INV :caller:callee:uuid:caller_port:callee_port
 //结束协议包为 BYE :uuid
 //数据协议包为 DATA:port:payload:data
+func IsDir(path string) bool {
+	s, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return s.IsDir()
+}
 func GetCurrentDirectory() string {
 	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
@@ -116,7 +126,9 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 			fmt.Println("open file error:", err)
 			return
 		}
-		Sessions[session.Uuid] = session
+		session.Callin_time = time.Now()
+		//Sessions[session.Uuid] = session
+		SessMgr_.Set(session.Uuid, session)
 
 	} else if cmd == DATA {
 		//DATA:478525a8-8263-4550-b18c-d027d11c9865:R:00:160:xxxxx   ,先转为字符串后，再把长度后的那部分写入文件,
@@ -137,7 +149,7 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 			} else {
 				if mypos > 3 {
 					if IsDigits(mylen) {
-						session, ok := Sessions[uuid]
+						session, ok := SessMgr_.Get(uuid) //Sessions[uuid]
 						if !ok {
 							fmt.Println("not found session for uuid:", uuid)
 							return
@@ -195,16 +207,8 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 		}
 		uuid := s3[1]
 		//如果有未关闭的文件，需要在些处关闭
-		session, ok := Sessions[uuid]
-		if ok {
-			if session.Caller_file != nil {
-				session.Caller_file.Close()
-			}
-			if session.Callee_file != nil {
-				session.Callee_file.Close()
-			}
-		}
-		delete(Sessions, uuid)
+		SessMgr_.Del(uuid)
+		//delete(Sessions, uuid)
 	}
 }
 
@@ -234,6 +238,22 @@ func main() {
 	Save_dir = iniconf.String("save_dir")
 	if len(Save_dir) < 1 {
 		Save_dir = "/opt/nway/"
+	}
+	if IsDir(Save_dir) == false {
+		os.MkdirAll(Save_dir, 0777)
+	}
+	Cdr_dir = iniconf.String("cdr_dir")
+	if len(Cdr_dir) < 1 {
+		Cdr_dir = "/opt/nway/cdr/"
+	}
+	if IsDir(Cdr_dir) == false {
+		os.MkdirAll(Cdr_dir, 0777)
+	}
+	cdr_filename := fmt.Sprintf("%s%d.log", Cdr_dir, time.Now().Unix())
+	Cdr_file, err = os.Create(cdr_filename)
+	if err != nil {
+		fmt.Println("create cdr file handler failed:", err)
+		return
 	}
 	Save_rule = iniconf.String("save_rule")
 	if len(Save_rule) < 1 {
@@ -269,8 +289,8 @@ func main() {
 	//end 解析rule
 
 	rand.Seed(time.Now().Unix())
-	Sessions = make(map[string]Rst_session, 0)
-
+	//Sessions = make(map[string]Rst_session, 0)
+	SessMgr_ = SessMgr{Sessions: make(map[string]Rst_session)}
 	for {
 		buffer := make([]byte, 1024)
 		n, addr, err := connection.ReadFromUDP(buffer)
@@ -284,5 +304,8 @@ func main() {
 
 		}
 
+	}
+	if Cdr_file != nil {
+		Cdr_file.Close()
 	}
 }
