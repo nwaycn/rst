@@ -530,9 +530,7 @@ SWITCH_STANDARD_API(session_rst_function)
 	if (zstr(cmd)) {
 		goto usage;
 	}
-	if (zstr(cmd)) {
-		goto usage;
-	}
+	
 	if (!(mycmd = switch_core_strdup(pool,cmd)))
 	{
 		log_err("no enough memory\n");
