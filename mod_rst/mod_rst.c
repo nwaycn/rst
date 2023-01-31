@@ -576,10 +576,10 @@ fail:
 SWITCH_MODULE_LOAD_FUNCTION(mod_rst_load)
 {
 	switch_application_interface_t *app_interface;
-	//globals.pool = pool;
+	
 	memset(&globals, 0, sizeof(globals));
 	globals.pool = pool;
-	//switch_api_interface_t *commands_api_interface;
+	
 	switch_api_interface_t *api_interface;
 	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, globals.pool);
 	unsigned int major = atoi(switch_version_major());
