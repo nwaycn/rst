@@ -64,3 +64,20 @@ receive udp packet and write into file
 
 ## License:GPL
 
+## 安装使用：
+
+1. 将rst.conf.xml拷贝到`/usr/local/freeswitch/conf/autoload_configs/rst.conf.xml`
+
+2. mod_rst.so拷贝到`/usr/local/freeswitch/mod/mod_rst.so`
+
+3. 通这fs_cli中 `load mod_rst` 如无异常可以正常加载
+
+4. 后台启动udp_server
+
+5. 在freeswitch的dialplan中配置路由
+
+`<action application="set" data="execute_on_answer='rst serverip serverport'"/>`
+如不指定serverip、serverport那么自动使用默认的ip/port。
+
+6. 如果是esl连接，那么在inbound模式下中调用时使用 `uuid_rst uuid serverip serverport`即可
+
