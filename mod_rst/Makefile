@@ -9,10 +9,10 @@ OBJS = $(patsubst %.c,%.o,$(patsubst %.cpp,%.o,$(SOURCES)))
 CXXFLAGS = -fpermissive
 
 %.o: %.c
-	g++ -I${BASE}/include -g -I./ ${CXXFLAGS}    -fPIC -c $< -o $@  
+	g++ -I${BASE}/include/freeswitch -g -I./ ${CXXFLAGS}    -fPIC -c $< -o $@  
 
 %.o: %.cpp
-	g++ -I${BASE}/include -g     -fPIC -c $< -o $@ ${CXXFLAGS} -I./  
+	g++ -I${BASE}/include/freeswitch -g     -fPIC -c $< -o $@ ${CXXFLAGS} -I./  
 
 
 mod_rst.so: $(OBJS)

@@ -44,13 +44,19 @@ typedef struct rst_helper {
 	int thread_ready;
 	const char *completion_cause;
 	char* udp_server_ip;          //可以每次来指定ip:port
+	
     unsigned short udp_server_port;   //port
+	
+	char* local_ip;
+	switch_port_t local_port;
+	
 	char *uuid;
 	char *caller;
 	char *callee;
 	//switch_audio_resampler_t *resampler;
     switch_socket_t *socket = NULL;
-	switch_sockaddr_t *addr = NULL;
+	switch_sockaddr_t *remote_addr = NULL;
+	switch_sockaddr_t *local_addr = NULL;
 	switch_memory_pool_t *pool=NULL;
 }rst_helper_t;
 
@@ -132,14 +138,16 @@ static switch_bool_t nway_is_silence_frame(switch_frame_t *frame, int silence_th
 	return is_silence;
 }
 
-static switch_bool_t nway_send_to(struct rst_helper* rh,char *data,int len)
+static switch_status_t nway_send_to(struct rst_helper* rh,char *data,int len)
 {
-    if (socket){
-        if (switch_socket_sendto(rh->socket, rh->addr, 0, (void *) data, (switch_size_t *)&len) != SWITCH_STATUS_SUCCESS) {
-				//switch_ivr_deactivate_unicast(rh->session);
-				log_err("sent udp info failed\n");
-		}
+	switch_size_t mylen = len;
+    if (rh->socket){
+		//log_ntc("%s   len:%d",data,len);
+		switch_status_t status =switch_socket_sendto(rh->socket, rh->remote_addr, 0, (void *) data, &mylen)  ;
+		  
+		return status;
     }
+	return SWITCH_STATUS_GENERR;
 }
 static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data, switch_abc_type_t type)
 {
@@ -169,9 +177,9 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 	switch_assert(session);
 	
 	 
-	if (switch_channel_down(channel)) {
-		return SWITCH_FALSE;
-	}
+	//if (switch_channel_down(channel)) {
+	//	return SWITCH_FALSE;
+	//}
 
 	switch (type) {
 	case SWITCH_ABC_TYPE_INIT:
@@ -180,7 +188,8 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
              
                
 			char cmd[1024]={0};
-			sprintf(cmd,"%s :%s:%s:%s\0",INV,rh->uuid,rh->caller,rh->callee);
+			sprintf(cmd,"%s:%s:%s:%s\0",INV,rh->uuid,rh->caller,rh->callee);
+			log_ntc(cmd);
 			nway_send_to(rh,cmd,strlen(cmd));
             
 		}
@@ -261,10 +270,13 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 				
 			char cmd[1024]={0};
 			sprintf(cmd,"BYE :%s\0",rh->uuid);
+			log_ntc(cmd);
 			nway_send_to(rh,cmd,strlen(cmd));
           
-			if (rh->socket)
+			if (rh->socket){
+				switch_socket_shutdown(rh->socket, SWITCH_SHUTDOWN_READWRITE);
 				switch_socket_close(rh->socket);
+			}
 			if (rh->pool){
 				switch_core_destroy_memory_pool(&rh->pool);
 			}
@@ -283,6 +295,43 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 
 }
 
+static switch_status_t switch_find_available_port(switch_port_t *port, const char *ip, int type)
+{
+	switch_status_t ret = SWITCH_STATUS_SUCCESS;
+	switch_memory_pool_t *pool = NULL;
+	switch_sockaddr_t *addr = NULL;
+	switch_socket_t *sock = NULL;
+	switch_bool_t found = SWITCH_FALSE;
+
+	if ((ret = switch_core_new_memory_pool(&pool)) != SWITCH_STATUS_SUCCESS) {
+		goto done;
+	}
+	
+	while (!found) {
+		if ((ret = switch_sockaddr_info_get(&addr, ip, SWITCH_UNSPEC, *port, 0, pool)) != SWITCH_STATUS_SUCCESS) {
+			goto done;
+		}
+	
+		if ((ret = switch_socket_create(&sock, switch_sockaddr_get_family(addr), type, 0, pool)) != SWITCH_STATUS_SUCCESS) {
+			goto done;
+		}
+
+		//if (!(found = (switch_socket_bind(sock, addr) == SWITCH_STATUS_SUCCESS))) {
+		if (switch_socket_bind(sock, addr) == SWITCH_STATUS_SUCCESS){
+			found = SWITCH_FALSE;
+			*port = *port + 1;
+		}else{
+			found = SWITCH_TRUE;
+		}
+		
+		switch_socket_close(sock);
+	}
+
+done:
+	if (pool) switch_core_destroy_memory_pool(&pool);
+
+	return ret;
+}
 
 SWITCH_DECLARE(switch_status_t) nway_rst_session(switch_core_session_t *session,const char* ip, short port)
 {
@@ -304,6 +353,9 @@ SWITCH_DECLARE(switch_status_t) nway_rst_session(switch_core_session_t *session,
 	int file_flags = SWITCH_FILE_FLAG_WRITE | SWITCH_FILE_DATA_SHORT;
 	switch_bool_t hangup_on_error = SWITCH_FALSE;	
 	switch_codec_t raw_codec = { 0 };
+	char local_ip[64];
+	switch_port_t local_port = 6050;
+	
 	if (!switch_channel_media_up(channel) || !switch_core_session_get_read_codec(session)) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Can not rst session.  Media not enabled on channel\n");
 		return SWITCH_STATUS_FALSE;
@@ -325,30 +377,59 @@ SWITCH_DECLARE(switch_status_t) nway_rst_session(switch_core_session_t *session,
 
 	// 	}
 	// }
+	
+	//优先为每次调用时的，否则使用全局的
+	if (strlen(ip)<4 || port ==0){
+		if (switch_sockaddr_info_get(&rh->remote_addr, globals.udp_server_ip, SWITCH_UNSPEC,
+								 globals.udp_server_port, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 3\n");
+			log_ntc("remote ip:%s    port:%d address error\n",globals.udp_server_ip,globals.udp_server_port);
+			goto end;
+		}
+	}else{
+		if (switch_sockaddr_info_get(&rh->remote_addr,ip, SWITCH_UNSPEC,
+								 port, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 3\n");
+			log_ntc("remote ip:%s    port:%d address error\n", ip, port);
+			goto end;
+		}
+	}
+	
+    //log_ntc("create socket");
+	///////////////////////
+	//switch_socket_sendto(globals.udp_socket, globals.dst_sockaddrs[i].sockaddr, 0, buf, &len);
+	
     if (switch_socket_create(&rh->socket, AF_INET, SOCK_DGRAM, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 1\n");
 		goto end;
 	}
 
-	if (switch_socket_opt_set(rh->socket, SWITCH_SO_REUSEADDR, 1) != SWITCH_STATUS_SUCCESS) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Socket Option Error\n");
+	
+	//本地ip 和port
+	
+	
+	
+	switch_find_local_ip(local_ip, sizeof(local_ip), NULL, AF_INET);
+
+	/*if (switch_find_available_port(&local_port, local_ip, SOCK_DGRAM) != SWITCH_STATUS_SUCCESS) {
+		log_err( "RST failed: could not get available local port\n");
+		 
 		goto end;
-	}
-	//优先为每次调用时的，否则使用全局的
-	if (strlen(ip)<4 || port ==0){
-		if (switch_sockaddr_info_get(&rh->addr, globals.udp_server_ip, SWITCH_UNSPEC,
-								 globals.udp_server_port, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 3\n");
+	}*/
+	local_port = 0;
+	if (switch_sockaddr_info_get(&rh->local_addr,local_ip, SWITCH_UNSPEC,
+								 local_port, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error local address\n");
 			goto end;
 		}
-	}else{
-		if (switch_sockaddr_info_get(&rh->addr,ip, SWITCH_UNSPEC,
-								 port, 0, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error 3\n");
-			goto end;
-		}
+	log_ntc("local ip:%s    port:%d\n",local_ip,local_port);
+	if (switch_socket_bind(rh->socket, rh->local_addr) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unable to bind IPv4 Socket\n");
+			 
+	} else {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "IPv4 source set to: %s\n", rh->local_addr);
 	}
-    
+	switch_socket_opt_set(rh->socket, SWITCH_SO_NONBLOCK, TRUE);
     nway_get_caller(&caller, channel_name);
 	if (!zstr(caller.username))
 	{
@@ -364,19 +445,21 @@ SWITCH_DECLARE(switch_status_t) nway_rst_session(switch_core_session_t *session,
 											nway_rst_callback, rh, to, flags, &bug)) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error adding media bug  \n");
 		 
-		return status;
-	} 
+		goto end;
+	}
+     return SWITCH_STATUS_SUCCESS; 
 end:
    	// if (rh->resampler) {
 	// 	switch_resample_destroy(&rh->resampler);
 	// }
+	log_err("create socket error:%s:%d\n",globals.udp_server_ip,globals.udp_server_port);
 	if (rh->socket)
         switch_socket_close(rh->socket);
 	if (rh->pool){
 		switch_core_destroy_memory_pool(&rh->pool);
 	}
     switch_core_session_reset(session, SWITCH_FALSE, SWITCH_TRUE);
-	return SWITCH_STATUS_SUCCESS;
+	return SWITCH_STATUS_FALSE;
 }
 
 static switch_status_t load_config(void)
@@ -467,14 +550,13 @@ SWITCH_STANDARD_APP(rst_session_function)
 
 	if ((argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) < 2)
 	{
-		log_err("no enough parameters\n");
-		goto fail;
-	}
-	 
-	 
-	ip = switch_core_strdup(pool,argv[0]);
-	port = atoi(argv[1]);
-	nway_rst_session(session,ip,port);
+		log_err("no enough parameters,but continue!\n");
+		nway_rst_session(session,"",0);
+	}else{
+        	ip = switch_core_strdup(pool,argv[0]);
+	        port = atoi(argv[1]);
+	        nway_rst_session(session,ip,port);
+        }
 	return;
 fail:
 	log_err("err: exit session function\n");

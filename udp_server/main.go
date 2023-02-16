@@ -100,7 +100,7 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 		session.Uuid = s3[1]
 		session.Caller = s3[2]
 		session.Callee = s3[3]
-
+		//session.Caller_file_name =
 		if Use_caller {
 
 			session.Caller_file_name = session.Caller + "_"
@@ -113,8 +113,10 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 
 			session.Caller_file_name += session.Uuid
 		}
-		session.Callee_file_name = session.Caller_file_name + "_R" + Ext_name
+		session.Callee_file_name = Save_dir + session.Caller_file_name + "_R" + Ext_name
+		
 		session.Caller_file_name += "_W" + Ext_name
+		session.Caller_file_name = Save_dir + session.Caller_file_name
 		//openfile
 		session.Caller_file, err = os.Create(session.Caller_file_name)
 		if err != nil {
@@ -267,7 +269,7 @@ func main() {
 		Use_caller = false
 		Use_uuid = true
 	} else {
-		for i := 0; i <= len(s1); i++ {
+		for i := 0; i <len(s1); i++ {
 			if s1[i] == "caller" {
 				Use_caller = true
 			} else if s1[i] == "callee" {
