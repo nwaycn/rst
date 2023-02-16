@@ -36,12 +36,18 @@ func (s *SessMgr) Get(key string) (Rst_session, bool) {
 	s.RLock()
 	defer s.RUnlock()
 	session, ok := s.Sessions[key]
+	if (!ok){
+		fmt.Println("not found session :%s",key)
+	}
+	
 	return session, ok
 }
 func (s *SessMgr) Set(key string, val Rst_session) {
 	s.Lock()
 	defer s.Unlock()
+	
 	s.Sessions[key] = val
+	fmt.Println("insert a session for:%s, caller:%s, callee:%s",key,val.Caller , val.Callee)
 }
 func (s *SessMgr) Del(key string) {
 	s.Lock()
