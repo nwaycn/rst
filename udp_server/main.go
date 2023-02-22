@@ -93,9 +93,9 @@ func InsertHexFile(mydata []byte, mydata_len int, file *os.File) error {
 		return errors.New("file not opened")
 	}
 	for i := 0; i < mydata_len; i++ {
-		mydatahex += " 0x"
+		//mydatahex += " 0x"
 		myassicc := int(mydata[i])
-		mydatahex += strconv.Itoa(myassicc)
+		mydatahex += fmt.Sprintf(" 0x%x", myassicc)
 	}
 	_, err := file.WriteString(mydatahex)
 	return err
