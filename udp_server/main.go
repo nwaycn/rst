@@ -86,7 +86,20 @@ func IsDigits(str string) bool {
 	}
 	return true
 }
-
+func InsertHexFile(mydata []byte, mydata_len int, file *os.File) error {
+	var mydatahex string
+	if file == nil {
+		fmt.Println("file not opened")
+		return errors.New("file not opened")
+	}
+	for i := 0; i < mydata_len; i++ {
+		mydatahex += " 0x"
+		myassicc := int(mydata[i])
+		mydatahex += strconv.Itoa(myassicc)
+	}
+	_, err := file.WriteString(mydatahex)
+	return err
+}
 func GetValidString(s string) string {
 
 	bytes := []byte(s)
@@ -257,6 +270,21 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 			fmt.Println("open file:", session.Callee_file_name, "  error:", err.Error())
 			//return
 		}
+		if WriteHex {
+			tmp := session.Callee_file_name + ".hex"
+			session.Callee_file_hex, err = os.Create(tmp)
+			if err != nil {
+				fmt.Println("open hex file error:", err)
+				return
+			}
+			tmp = session.Caller_file_name + ".hex"
+			session.Caller_file_hex, err = os.Create(tmp)
+			if err != nil {
+				fmt.Println("open hex file error:", err)
+				return
+			}
+		}
+
 		session.Callin_time = time.Now()
 		//Sessions[session.Uuid] = session
 		SessMgr_.Set(session.Uuid, session)
@@ -277,12 +305,19 @@ func process_package(n int, addr *net.UDPAddr, buffer []byte) {
 					if err != nil {
 						fmt.Println("write to file error:", err)
 					}
+					if WriteHex {
+						InsertHexFile(mydata, ilen, session.Caller_file_hex)
+					}
+
 				}
 			} else {
 				if session.Callee_file != nil {
 					_, err = session.Callee_file.Write(mydata)
 					if err != nil {
 						fmt.Println("write to file error:", err)
+					}
+					if WriteHex {
+						InsertHexFile(mydata, ilen, session.Callee_file_hex)
 					}
 				}
 			}
@@ -415,7 +450,7 @@ func main() {
 	if len(Save_rule) < 1 {
 		Save_rule = "caller_callee_uuid.pcm"
 	}
-
+	WriteHex = true
 	//解析rule
 	s1 := strings.Split(Save_rule, "_")
 	if len(s1) < 2 {

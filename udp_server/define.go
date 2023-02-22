@@ -23,6 +23,8 @@ type Rst_session struct {
 	Hangup_time       time.Time
 	Caller_file       *os.File
 	Callee_file       *os.File
+	Caller_file_hex   *os.File //二进制数据16进制存储
+	Callee_file_hex   *os.File //二进制数据16进制存储
 	Caller_file_name  string
 	Callee_file_name  string
 }
@@ -32,22 +34,24 @@ type SessMgr struct {
 	Sessions map[string]Rst_session
 }
 
+var WriteHex bool = false
+
 func (s *SessMgr) Get(key string) (Rst_session, bool) {
 	s.RLock()
 	defer s.RUnlock()
 	session, ok := s.Sessions[key]
-	if (!ok){
-		fmt.Println("not found session :%s",key)
+	if !ok {
+		fmt.Println("not found session :%s", key)
 	}
-	
+
 	return session, ok
 }
 func (s *SessMgr) Set(key string, val Rst_session) {
 	s.Lock()
 	defer s.Unlock()
-	
+
 	s.Sessions[key] = val
-	fmt.Println("insert a session for:%s, caller:%s, callee:%s",key,val.Caller , val.Callee)
+	fmt.Println("insert a session for:%s, caller:%s, callee:%s", key, val.Caller, val.Callee)
 }
 func (s *SessMgr) Del(key string) {
 	s.Lock()
@@ -60,6 +64,15 @@ func (s *SessMgr) Del(key string) {
 		if session.Callee_file != nil {
 			session.Callee_file.Close()
 		}
+		if WriteHex {
+			if session.Caller_file_hex != nil {
+				session.Caller_file_hex.Close()
+			}
+			if session.Callee_file_hex != nil {
+				session.Callee_file_hex.Close()
+			}
+		}
+
 	}
 	tmp := fmt.Sprintf("caller:%s,callee:%s,R:%s,W:%s,callin time:%s,hangup time:%s\r\n", session.Caller, session.Callee,
 		session.Caller_file_name, session.Callee_file_name, session.Callin_time.Format(TIMEFORMAT), time.Now().Format(TIMEFORMAT))
