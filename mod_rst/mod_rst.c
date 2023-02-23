@@ -273,11 +273,12 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 		sprintf(cmd, "DATA:%s:R:%s:%d:", rh->uuid, payload, len);
 		len = strlen(cmd);
 		char *f = cmd;
-		memcpy(cmd + len, rframe->data, (switch_size_t)rframe->datalen);
-		len = len + rframe->datalen;
-		nway_send_to(rh, cmd, strlen(cmd));
 		if (globals.write_hex)
-			InsertHexFile(rframe->data, rframe->datalen, rh->caller_file_hex);
+			InsertHexFile(rframe->data, rframe->samples, rh->caller_file_hex);
+		// memcpy(cmd + len, rframe->data, (switch_size_t)rframe->datalen);
+		memcpy(cmd + len, rframe->data, rframe->samples);
+		len = len + rframe->samples;
+		nway_send_to(rh, cmd, len);
 	}
 	break;
 	case SWITCH_ABC_TYPE_TAP_NATIVE_WRITE:
@@ -310,11 +311,11 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 		sprintf(cmd, "DATA:%s:W:%s:%d:", rh->uuid, payload, len);
 		len = strlen(cmd);
 		char *f = cmd;
-		memcpy(cmd + len, wframe->data, (switch_size_t)wframe->datalen);
-		len = len + wframe->datalen;
-		nway_send_to(rh, cmd, strlen(cmd));
+		memcpy(cmd + len, wframe->data, wframe->samples);
 		if (globals.write_hex)
 			InsertHexFile(wframe->data, wframe->datalen, rh->callee_file_hex);
+		len = len + wframe->samples;
+		nway_send_to(rh, cmd, len);
 	}
 
 	break;

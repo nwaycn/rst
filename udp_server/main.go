@@ -92,6 +92,10 @@ func InsertHexFile(mydata []byte, mydata_len int, file *os.File) error {
 		fmt.Println("file not opened")
 		return errors.New("file not opened")
 	}
+	if len(mydata) < mydata_len {
+		fmt.Println("data real len less than ilen ")
+		return errors.New("data real len less than ilen")
+	}
 	for i := 0; i < mydata_len; i++ {
 		//mydatahex += " 0x"
 		myassicc := int(mydata[i])
@@ -202,6 +206,7 @@ func ParseData(data []byte, l int) (error, string, string, string, int, []byte) 
 			fmt.Println(err)
 		}
 	}
+	fmt.Printf("len of proto:%d , real data length:%d\n", ilen, len(rdata))
 	return nil, uuid, flag, payload, ilen, rdata
 }
 func process_package(n int, addr *net.UDPAddr, buffer []byte) {
