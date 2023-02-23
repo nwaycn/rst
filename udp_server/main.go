@@ -455,7 +455,7 @@ func main() {
 	if len(Save_rule) < 1 {
 		Save_rule = "caller_callee_uuid.pcm"
 	}
-	WriteHex = true
+	WriteHex = false
 	//解析rule
 	s1 := strings.Split(Save_rule, "_")
 	if len(s1) < 2 {
