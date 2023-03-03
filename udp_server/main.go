@@ -172,6 +172,7 @@ func ParseData(data []byte, l int) (error, string, string, string, int, []byte) 
 	var ilen int = 0
 	var i int = 0
 	var myorder int = 0
+
 	rdata = make([]byte, 1)
 	for i = 0; i < l; i++ {
 		if data[i] > 31 && data[i] < 127 && myorder < 5 {
