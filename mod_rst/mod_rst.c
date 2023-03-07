@@ -17,6 +17,7 @@ static struct
 	char *udp_server_ip;
 	unsigned short udp_server_port;
 	unsigned int fs_ver;
+	switch_core_hash_t *port_map;
 	int write_hex;
 } globals;
 
@@ -50,14 +51,19 @@ typedef struct rst_helper
 
 	char *local_ip;
 	switch_port_t local_port;
+	//remote_ip and remote_port can tell me from udp server,so can more machine for this
+	char *remote_ip;//
+	switch_port_t remote_port;
 
 	char *uuid;
 	char *caller;
 	char *callee;
+	switch_core_session_t *session;
 	// switch_audio_resampler_t *resampler;
 	switch_socket_t *socket = NULL;
 	switch_sockaddr_t *remote_addr = NULL;
 	switch_sockaddr_t *local_addr = NULL;
+	switch_sockaddr_t *from_addr = NULL;
 	switch_memory_pool_t *pool = NULL;
 	////debug file
 	FILE *caller_file_hex;
@@ -160,6 +166,44 @@ static switch_status_t nway_send_to(struct rst_helper *rh, char *data, int len)
 	}
 	return SWITCH_STATUS_GENERR;
 }
+static switch_status_t nway_cmd_consult(struct rst_helper *rh,char *data, int len)
+{
+	//get an actived port from udp server
+	switch_time_t started=switch_micro_time_now();
+	uint8_t buf[260] = { 0 };
+	switch_size_t bytes = 0;
+	switch_size_t mylen = len;
+	if (rh->socket)
+	{
+		// log_ntc("%s   len:%d",data,len);
+		 if (switch_socket_sendto(rh->socket, rh->remote_addr, 0, (void *)data, &mylen)==SWITCH_STATUS_SUCCESS){
+		
+			switch_sockaddr_info_get(&from_addr, NULL, SWITCH_UNSPEC, 0, 0, switch_core_session_get_pool(rh->session));
+			for (;;) {
+				bytes = sizeof(buf);
+				if (switch_socket_recvfrom(from_addr, rh->socket, 0, (char *) &buf, &bytes) == SWITCH_STATUS_SUCCESS && bytes > 0) {
+					//here to parse received data ,get an port,and it has started from udp server
+					//rh->remote_ip;
+					//rh->remote_port;
+					break;
+				}
+
+				if (((unsigned int)((switch_micro_time_now() - started) / 1000)) > 5000) {
+					
+					switch_socket_shutdown(rh->socket, SWITCH_SHUTDOWN_READWRITE);
+					switch_socket_close(rh->socket);
+					return SWITCH_STATUS_TIMEOUT;
+				}
+				switch_cond_next();
+			}
+			//if I get the new ip and port ,I can close socket 
+			switch_socket_close(rh->socket);
+			return SWITCH_STATUS_SUCCESS;
+		 } 
+	}
+	return SWITCH_STATUS_GENERR;
+	
+}
 static void InsertHexFile(char *data, int len, FILE *f)
 {
 	char *tmp = malloc(4000);
@@ -216,8 +260,9 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 	case SWITCH_ABC_TYPE_INIT:
 	{
 		// get caller,callee,uuid,caller_port,callee_port
-
+		
 		char cmd[1024] = {0};
+		
 		if (globals.write_hex)
 		{
 			// create two file
@@ -238,6 +283,11 @@ static switch_bool_t nway_rst_callback(switch_media_bug_t *bug, void *user_data,
 		log_ntc(cmd);
 
 		nway_send_to(rh, cmd, strlen(cmd));
+		if (nway_cmd_consult(rh)!=SWITCH_STATUS_SUCCESS){
+			//remove this media bug
+			switch_core_media_bug_remove_callback(session, nway_rst_callback);
+		}
+		//reconnect a new socket from new remote ip,remote port
 	}
 	break;
 	case SWITCH_ABC_TYPE_TAP_NATIVE_READ:
@@ -519,7 +569,7 @@ nway_rst_session(switch_core_session_t *session, const char *ip, short port)
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "No caller name\n");
 		goto end;
 	}
-
+	rh->session = session;
 	if ((status = switch_core_media_bug_add(session, "rst", NULL,
 											nway_rst_callback, rh, to, flags, &bug)) != SWITCH_STATUS_SUCCESS)
 	{
@@ -784,7 +834,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_rst_load)
 	SWITCH_ADD_APP(app_interface, "rst", "realtime stream transfer", "rst ip port", rst_session_function, "", SAF_MEDIA_TAP);
 	SWITCH_ADD_API(api_interface, "rst_stop", "realtime stream transfer", stop_rst_session_function, STOP_RST_SESSION_SYNC);
 	SWITCH_ADD_API(api_interface, "uuid_rst", "realtime stream transfer api", session_rst_function, SESSIOS_RST_SYNTAX);
-
+	switch_core_hash_init(&globals.port_map);
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, " rst loaded\n");
 	return SWITCH_STATUS_SUCCESS;
 END:
@@ -793,7 +843,7 @@ END:
 
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_rst_shutdown)
 {
-
+	switch_core_hash_destroy(&globals.port_map);
 	switch_mutex_destroy(globals.mutex);
 	return SWITCH_STATUS_SUCCESS;
 }
