@@ -62,6 +62,7 @@ receive udp packet and write into file
 
 
 
+
 //如果是挂机则发：
 
 //BYE :UUID
@@ -97,7 +98,7 @@ ACK :478525a8-8263-4550-b18c-d027d11c9865:6004:6005
 5. 在 freeswitch 的 dialplan 中配置路由
 
 `<action application="set" data="execute_on_answer='rst serverip serverport'"/>`
-如果是 fs 1.10.10 版本，要去掉单引号，否则总提示找不到application
+如果是 fs 1.10.10 版本，要去掉单引号，否则总提示找不到application                                                            
 `<action application="set" data="execute_on_answer=rst serverip serverport"/>`
 如不指定 serverip、serverport 那么自动使用默认的 ip/port。
 
